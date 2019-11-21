@@ -172,6 +172,83 @@ open class OAuth2Swift: OAuthSwift {
         return nil
     }
 
+    @discardableResult
+    open func getAuthorizationCode(withCallbackURL callbackURL: URLConvertible?, scope: String, state: String, parameters: Parameters = [:], headers: OAuthSwift.Headers? = nil, completionHandler completion: @escaping CodeCompletionHandler) -> OAuthSwiftRequestHandle? {
+        if let url = callbackURL, url.url == nil {
+            completion(.failure(.encodingError(urlString: url.string)))
+            return nil
+        }
+        self.observeCallback { [weak self] url in
+            guard let this = self else {
+                completion(.failure(.retain))
+                return
+            }
+            var responseParameters = [String: String]()
+            if let query = url.query {
+                responseParameters += query.parametersFromQueryString
+            }
+            if let fragment = url.fragment, !fragment.isEmpty {
+                responseParameters += fragment.parametersFromQueryString
+            }
+            if let code = responseParameters["code"] {
+                if !this.allowMissingStateCheck {
+                    guard let responseState = responseParameters["state"] else {
+                        completion(.failure(.missingState))
+                        return
+                    }
+                    if responseState != state {
+                        completion(.failure(.stateNotEqual(state: state, responseState: responseState)))
+                        return
+                    }
+                }
+                completion(.success((credential: OAuthSwiftCode(code: code), response: nil, parameters: responseParameters)))
+            } else if let error = responseParameters["error"] {
+                let description = responseParameters["error_description"] ?? ""
+                let message = NSLocalizedString(error, comment: description)
+                completion(.failure(.serverError(message: message)))
+            } else {
+                let message = "No access_token, no code and no error provided by server"
+                completion(.failure(.serverError(message: message)))
+            }
+        }
+
+        var queryErrorString = ""
+        let encodeError: (String, String) -> Void = { name, value in
+            if let newQuery = queryErrorString.urlQueryByAppending(parameter: name, value: value, encode: false) {
+                queryErrorString = newQuery
+            }
+        }
+
+        var queryString: String? = ""
+        queryString = queryString?.urlQueryByAppending(parameter: "client_id", value: self.consumerKey, encodeError)
+        if let callbackURL = callbackURL {
+            let value = self.encodeCallbackURL ? callbackURL.string.urlEncoded : callbackURL.string
+            queryString = queryString?.urlQueryByAppending(parameter: "redirect_uri", value: value, encode: self.encodeCallbackURLQuery, encodeError)
+        }
+        queryString = queryString?.urlQueryByAppending(parameter: "response_type", value: self.responseType, encodeError)
+        queryString = queryString?.urlQueryByAppending(parameter: "scope", value: scope, encodeError)
+        queryString = queryString?.urlQueryByAppending(parameter: "state", value: state, encodeError)
+
+        for (name, value) in parameters {
+            queryString = queryString?.urlQueryByAppending(parameter: name, value: "\(value)", encodeError)
+        }
+
+        if let queryString = queryString {
+            let urlString = self.authorizeUrl.urlByAppending(query: queryString)
+            if let url: URL = URL(string: urlString) {
+                self.authorizeURLHandler.handle(url)
+                return self
+            } else {
+                completion(.failure(.encodingError(urlString: urlString)))
+            }
+        } else {
+            let urlString = self.authorizeUrl.urlByAppending(query: queryErrorString)
+            completion(.failure(.encodingError(urlString: urlString)))
+        }
+        self.cancel() // ie. remove the observer.
+        return nil
+    }
+
     open func postOAuthAccessTokenWithRequestToken(byCode code: String, callbackURL: URL?, headers: OAuthSwift.Headers? = nil, completionHandler completion: @escaping TokenCompletionHandler) -> OAuthSwiftRequestHandle? {
         var parameters = OAuthSwift.Parameters()
         parameters["client_id"] = self.consumerKey

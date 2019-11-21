@@ -107,4 +107,6 @@ extension OAuthSwift {
     public typealias TokenSuccess = (credential: OAuthSwiftCredential, response: OAuthSwiftResponse?, parameters: Parameters)
     public typealias TokenCompletionHandler = (Result<TokenSuccess, OAuthSwiftError>) -> Void
     public typealias TokenRenewedHandler = (Result<OAuthSwiftCredential, Never>) -> Void
+    public typealias CodeSuccess = (credential: OAuthSwiftCode, response: OAuthSwiftResponse?, parameters: Parameters)
+    public typealias CodeCompletionHandler = (Result<CodeSuccess, OAuthSwiftError>) -> Void
 }
